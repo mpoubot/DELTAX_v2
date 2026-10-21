@@ -43,11 +43,22 @@ def compact(value: str) -> str:
 def run_stage(name: str, args: list[str]) -> dict[str, Any]:
     started = datetime.now(timezone.utc)
     t0 = time.monotonic()
+    child_env = os.environ.copy()
+    # Scheduled Tasks on Windows can inherit a legacy console encoding
+    # (for example cp1252). News/AI text can contain Unicode characters such
+    # as non-breaking hyphens, which would otherwise crash a child process
+    # while writing captured stdout/stderr.
+    child_env["PYTHONIOENCODING"] = "utf-8"
+    child_env["PYTHONUTF8"] = "1"
+
     process = subprocess.run(
         [sys.executable, str(PROJECT_ROOT / args[0]), *args[1:]],
         cwd=PROJECT_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=child_env,
         check=False,
     )
     return {
@@ -85,7 +96,7 @@ def main():
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--market-lookback-hours", type=int, default=12)
     parser.add_argument("--company-lookback-hours", type=int, default=24)
-    parser.add_argument("--market-ai-limit", type=int, default=3)
+    parser.add_argument("--market-ai-limit", type=int, default=10)
     parser.add_argument("--company-ai-limit", type=int, default=10)
     args = parser.parse_args()
 
@@ -137,7 +148,7 @@ def main():
 
             else:
                 provider_results = []
-                for provider in ("finnhub", "marketaux"):
+                for provider in ("alpaca", "finnhub", "marketaux"):
                     result = run_stage(
                         f"market_news_ingestion_{provider}",
                         [
